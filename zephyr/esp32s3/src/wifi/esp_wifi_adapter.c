@@ -49,8 +49,42 @@ K_THREAD_STACK_DEFINE(wifi_stack, 8192);
 #define esp_wifi_calloc_func(_nmemb, _size) esp_heap_runtime_calloc(_nmemb, _size)
 #define esp_wifi_free_func(_mem) esp_heap_runtime_free(_mem)
 
-#else
+#elif defined(CONFIG_SHARED_MULTI_HEAP)
+#include <zephyr/multi_heap/shared_multi_heap.h>
+#include <zephyr/sys/sys_heap.h>
+#include <zephyr/sys/multi_heap.h>
+#include <zephyr/sys/math_extras.h>
 
+#if defined(CONFIG_ESP_SPIRAM)
+#define REGION_ATTR SMH_REG_ATTR_EXTERNAL
+#else
+#define REGION_ATTR SMH_REG_ATTR_CACHEABLE
+#endif /* CONFIG_ESP_SPIRAM */
+static void *shared_multi_heap_calloc(enum shared_multi_heap_attr attr, size_t nmemb, size_t size)
+{
+    void *ret;
+	size_t bounds;
+
+	if (attr >= MAX_SHARED_MULTI_HEAP_ATTR) {
+		return NULL;
+	}
+
+	if (size_mul_overflow(nmemb, size, &bounds)) {
+			return NULL;
+	}
+
+	ret = sys_multi_heap_alloc(&shared_multi_heap, (void *)(long) attr, bounds);
+	if(ret != NULL) {
+	   memset(ret, 0, bounds);
+	}
+
+	return ret;
+}
+#define esp_wifi_malloc_func(_size) shared_multi_heap_alloc(REGION_ATTR, _size)
+#define esp_wifi_calloc_func(_nmemb, _size) shared_multi_heap_calloc(REGION_ATTR, _nmemb, _size)
+#define esp_wifi_free_func(_mem) shared_multi_heap_free(_mem)
+
+#else
 #define esp_wifi_malloc_func(_size) k_malloc(_size)
 #define esp_wifi_calloc_func(_nmemb, _size) k_calloc(_nmemb, _size)
 #define esp_wifi_free_func(_mem) k_free(_mem)
